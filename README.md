@@ -27,12 +27,12 @@ HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数�
 ### 通过 HACS 安装（推荐）
 1. 确保已安装 [HACS](https://hacs.xyz/)。
 2. 在 HACS 中点击“集成”，选择“自定义存储库”。
-3. 添加仓库 URL：`https://github.com/cdcp998/Zontes_Motorcycle-ha，类别选择“集成”。
+3. 添加仓库 URL：`https://github.com/cdcp998/Zontes_Motorcycle-ha`，类别选择“集成”。
 4. 点击“下载”按钮，下载完成后重启 Home Assistant。
 
 ### 手动安装
-1. 下载 [最新发布版本](https://github.com/cdcp998/Zontes_Motorcycle-ha/releases/latest) 的 `zontes.zip`。
-2. 解压到 Home Assistant 配置目录的 `custom_components/zontes` 文件夹中。
+1. 下载 [最新发布版本](https://github.com/cdcp998/Zontes_Motorcycle-ha/releases/latest) 的 `Zontes_Motorcycle-ha.zip`。
+2. 解压到 Home Assistant 配置目录的 `custom_components/Zontes_Motorcycle-ha` 文件夹中。
 3. 重启 Home Assistant。
 
 ---
@@ -88,7 +88,7 @@ custom_components/zontes/
 ├── device_tracker.py    # 设备跟踪器
 └── translations/        # 国际化文件
     ├── en.json
-    └── zh.json
+    └── zh-Hans.json
 ```
 
 ---
@@ -119,7 +119,7 @@ custom_components/zontes/
 ## 🤝 贡献
 
 欢迎提交 Issue 或 Pull Request。  
-项目地址：[https://github.com/your-repo/zontes-ha](https://github.com/your-repo/zontes-ha)
+项目地址：[https://github.com/your-repo/zontes-ha](https://github.com/cdcp998/Zontes_Motorcycle-ha)
 
 ---
 
