@@ -125,4 +125,4 @@ custom_components/zontes/
 
 ## 📄 许可证
 
-MIT License
+GPL-3.0 license
