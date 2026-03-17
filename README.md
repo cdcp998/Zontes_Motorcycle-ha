@@ -119,7 +119,7 @@ custom_components/zontes/
 ## 🤝 贡献
 
 欢迎提交 Issue 或 Pull Request。  
-项目地址：[https://github.com/your-repo/zontes-ha](https://github.com/cdcp998/Zontes_Motorcycle-ha)
+项目地址：[https://github.com/cdcp998/Zontes_Motorcycle-ha](https://github.com/cdcp998/Zontes_Motorcycle-ha)
 
 ---
 
