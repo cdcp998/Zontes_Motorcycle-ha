@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数据。通过官方App接口获取车辆实时状态，支持多车辆自动轮询、授权时间管理、数值转换及国际化显示。
+HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数据。通过官方App接口获取车辆实时状态，支持多车辆自动轮询、数值转换及国际化显示。
 
 ---
 
@@ -14,8 +14,6 @@ HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数�
   - 胎压原始值自动 ×2 得到 kPa
   - 里程（总里程/小计里程）、电压、平均油耗原始值 ÷10 显示
   - 骑行时间（`RideTimes`）分钟转小时显示
-- **授权时间管理**：根据 `StartTime` / `EndTime` 自动过滤过期车辆，对应实体变为不可用。
-- **故障码友好显示**：无故障时显示“没有故障”（本地化）。
 - **国际化**：支持中文、英文界面（实体名称自动翻译）。
 - **设备跟踪**：通过 `device_tracker` 实体在地图上显示车辆位置。
 
