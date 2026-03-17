@@ -20,6 +20,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema({
     vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): int,
 })
 
+
 class ZontesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -56,3 +57,33 @@ class ZontesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await client.login()
         finally:
             await session.close()
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        """返回选项流处理器"""
+        return ZontesOptionsFlowHandler(config_entry)
+
+
+class ZontesOptionsFlowHandler(config_entries.OptionsFlow):
+    """处理选项配置"""
+
+    def __init__(self, config_entry):
+        """初始化选项流，存储配置条目到私有变量。"""
+        self._config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options_schema = vol.Schema({
+            vol.Optional(
+                CONF_SCAN_INTERVAL,
+                default = self._config_entry.options.get(
+                    CONF_SCAN_INTERVAL,
+                    self._config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+                ),
+                description = {"translation_key": "scan_interval"},
+            ): int,
+        })
+
+        return self.async_show_form(step_id="init", data_schema=options_schema)

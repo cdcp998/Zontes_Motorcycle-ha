@@ -18,32 +18,79 @@
       "already_configured": "This account is already configured"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
-      "oil": { "name": "Fuel Level" },
-      "pressure_front": { "name": "Front Tire Pressure" },
-      "pressure_rear": { "name": "Rear Tire Pressure" },
-      "range": { "name": "Range" },
-      "speed": { "name": "current Speed" },
-      "voltage": { "name": "Battery Voltage" },
-      "water_temp": { "name": "Coolant Temperature" },
-      "odo_mileages": { "name": "Odometer" },
-      "trip_mileage": { "name": "Trip Mileage" },
-      "maintenance_mileage": { "name": "Maintenance Due" },
-      "gsm_rssi": { "name": "GSM Signal" },
-      "satellite_num": { "name": "Satellites" },
-      "ride_times": { "name": "Ride Times" },
-      "fault_code": {"name": "Fault Code",  "no_fault": "No Fault" },
-      "trip_max_speed": { "name": "Max Speed" },
-      "oil_ause": { "name": "Average Fuel Consumption" },
-      "lock": { "name": "Lock Status" },
-      "vehicle_model": { "name": "Vehicle Model" }
+      "oil": {
+        "name": "Fuel Level"
+      },
+      "pressure_front": {
+        "name": "Front Tire Pressure"
+      },
+      "pressure_rear": {
+        "name": "Rear Tire Pressure"
+      },
+      "range": {
+        "name": "Range"
+      },
+      "speed": {
+        "name": "Speed"
+      },
+      "voltage": {
+        "name": "Battery Voltage"
+      },
+      "water_temp": {
+        "name": "Coolant Temperature"
+      },
+      "odo_mileages": {
+        "name": "Odometer"
+      },
+      "trip_mileage": {
+        "name": "Trip Mileage"
+      },
+      "maintenance_mileage": {
+        "name": "Maintenance Due"
+      },
+      "gsm_rssi": {
+        "name": "GSM Signal"
+      },
+      "satellite_num": {
+        "name": "Satellites"
+      },
+      "ride_times": {
+        "name": "Ride Time"
+      },
+      "fault_code": {
+        "name": "Fault Code",
+        "no_fault": "No Fault"
+      },
+      "trip_max_speed": {
+        "name": "Max Speed"
+      },
+      "oil_ause": {
+        "name": "Average Fuel Consumption"
+      },
+      "vehicle_model": {
+        "name": "Vehicle Model"
+      }
     },
     "binary_sensor": {
-      "lock": { "name": "Lock" }
+      "lock": {
+        "name": "Lock"
+      }
     },
     "device_tracker": {
-      "location": { "name": "Vehicle Location" }
+      "location": {
+        "name": "Vehicle Location"
+      }
     }
   }
 }

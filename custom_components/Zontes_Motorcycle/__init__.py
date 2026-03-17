@@ -16,10 +16,12 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "binary_sensor", "device_tracker"]
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
-    scan_interval = entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+    # 优先使用选项中的 scan_interval，否则使用配置数据中的，最后回退到默认值
+    scan_interval = entry.options.get(CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
 
     session = aiohttp.ClientSession()
     client = ZontesApiClient(username, password, session)
@@ -45,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             data_by_motor = await client.get_all_motors_data()
             return {
                 "by_motor": data_by_motor,
-                "motors": client.motors  # 传递过滤后的列表供实体使用
+                "motors": client.motors
             }
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}")
@@ -65,11 +67,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "client": client,
     }
 
+    # 添加选项变更监听器
+    entry.async_on_unload(entry.add_update_listener(update_listener))
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
+
+
+async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """当选项变更时调用，更新 coordinator 的间隔。"""
+    _LOGGER.debug("Options for %s changed: %s", entry.entry_id, entry.options)
+    scan_interval = entry.options.get(CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator.update_interval = timedelta(seconds=scan_interval)
+    _LOGGER.info("Update interval changed to %s seconds", scan_interval)
