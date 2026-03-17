@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "用户名",
+          "password": "密码",
+          "scan_interval": "更新间隔（秒）"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "用户名或密码无效",
+      "not_registered": "该账号尚未注册",
+      "wrong_password": "密码错误"
+    },
+    "abort": {
+      "already_configured": "该账户已配置"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "oil": { "name": "油量" },
+      "pressure_front": { "name": "前轮胎压" },
+      "pressure_rear": { "name": "后轮胎压" },
+      "range": { "name": "续航里程" },
+      "speed": { "name": "当前速度" },
+      "voltage": { "name": "电池电压" },
+      "water_temp": { "name": "水温" },
+      "odo_mileages": { "name": "总里程" },
+      "trip_mileage": { "name": "小计里程" },
+      "maintenance_mileage": { "name": "保养剩余里程" },
+      "gsm_rssi": { "name": "GSM信号" },
+      "satellite_num": { "name": "卫星数量" },
+      "ride_times": { "name": "骑行时间" },
+      "fault_code": { "name": "故障码",  "no_fault": "没有故障" },
+      "trip_max_speed": { "name": "最高速度" },
+      "oil_ause": { "name": "平均油耗" },
+      "lock": { "name": "锁状态" },
+      "vehicle_model": { "name": "车型" }
+    },
+    "binary_sensor": {
+      "lock": { "name": "锁" }
+    },
+    "device_tracker": {
+      "location": { "name": "车辆位置" }
+    }
+  }
+}
