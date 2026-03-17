@@ -1,7 +1,6 @@
 # Zontes Smart Motorcycle Integration for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/cdcp998/Zontes_Motorcycle-ha)
 
 HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数据。通过官方App接口获取车辆实时状态，支持多车辆自动轮询、授权时间管理、数值转换及国际化显示。
 
