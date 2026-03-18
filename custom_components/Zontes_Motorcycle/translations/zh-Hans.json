@@ -22,7 +22,8 @@
     "step": {
       "init": {
         "data": {
-          "scan_interval": "扫描间隔（秒)"
+          "scan_interval": "扫描间隔（秒)",
+          "coord_type": "GPS坐标类型"
         }
       }
     }
