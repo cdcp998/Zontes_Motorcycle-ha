@@ -1,0 +1,77 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "scan_interval": "Update interval (seconds)",
+          "coord_type": "GPS coordinate type"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password",
+      "not_registered": "This account is not registered",
+      "wrong_password": "Wrong password"
+    },
+    "abort": {
+      "already_configured": "This account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Update interval (seconds)",
+          "coord_type": "GPS coordinate type"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "oil": { "name": "Fuel Level" },
+      "pressure_front": { "name": "Front Tire Pressure" },
+      "pressure_rear": { "name": "Rear Tire Pressure" },
+      "voltage": { "name": "Battery Voltage" },
+      "current_speed": { "name": "Current Speed" },
+      "speed_average": { "name": "Average Speed" },
+      "trip_max_speed": { "name": "Max Speed" },
+      "oil_ause": { "name": "Average Fuel Consumption" },
+      "odo_mileages": { "name": "Odometer" },
+      "trip_mileage": { "name": "Trip Mileage" },
+      "maintenance_mileage": { "name": "Maintenance Due" },
+      "range": { "name": "Range" },
+      "ride_times": { "name": "Ride Time" },
+      "trip_times": { "name": "Trip Count" },
+      "water_temp": { "name": "Coolant Temperature" },
+      "gsm_rssi": { "name": "GSM Signal" },
+      "satellite_num": { "name": "Satellites" },
+      "fault_code": { "name": "Fault Code", "no_fault": "No Fault" },
+      "vehicle_model": { "name": "Vehicle Model" },
+      "serial_no": { "name": "Serial Number" },
+      "vin": { "name": "VIN" },
+      "engine_no": { "name": "Engine Number" },
+      "vehicle_year": { "name": "Vehicle Year" },
+      "build_date": { "name": "Build Date" },
+      "service_valid_time": { "name": "Service Valid Until" },
+      "firmware_version": { "name": "Firmware Version" },
+      "license_plate": { "name": "License Plate" },
+      "rated_front_pressure": { "name": "Rated Front Pressure" },
+      "rated_rear_pressure": { "name": "Rated Rear Pressure" },
+      "user_id": { "name": "User ID" },
+      "owner": { "name": "Owner" },
+      "creator": { "name": "Filer" },
+      "after_sales": { "name": "After-Sales Contact" },
+      "user_name": { "name": "User Name" },
+      "user_mobile": { "name": "User Mobile" }
+    },
+    "binary_sensor": {
+      "lock": { "name": "Lock" }
+    },
+    "device_tracker": {
+      "location": { "name": "Vehicle Location" }
+    }
+  }
+}
