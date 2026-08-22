@@ -39,16 +39,25 @@ class ZontesApiClient:
         self._original_pke: Optional[str] = None  # 记录最初默认车辆的 PKE 码
 
     async def login(self) -> bool:
-        md5_pwd = hashlib.md5(self._password.encode()).hexdigest()
+        salt = "Tk9@#Auth2026!*"
+        pwd_salted = self._password + salt
+        md5_pwd = hashlib.md5(pwd_salted.encode("utf-8")).hexdigest()
         url = f"{BASE_URL}{LOGIN_PATH}"
-        params = {
+        payload = {
+            "method": "nowlogin",
             "logintype": "SPLogin",
-            "method": "login",
             "name": self._username,
             "pwd": md5_pwd,
         }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://m.zontes.com/BoxApp/UserCenter/Login.html",
+            "Origin": "https://m.zontes.com",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        }
         try:
-            async with self._session.post(url, params=params) as resp:
+            async with self._session.post(url, data=payload, headers=headers) as resp:
                 text = await resp.text()
                 _LOGGER.debug("Login raw response: %s", text)
                 if text.startswith("logincallback(") and text.endswith(")"):
@@ -61,10 +70,10 @@ class ZontesApiClient:
                     self.user_info = data
                     return True
                 else:
-                    failmsg = data.get("failmsg", "")
+                    failmsg = data.get("failMsg") or data.get("failmsg") or data.get("msg") or ""
                     if "尚未注册" in failmsg:
                         raise ZontesNotRegisteredError(failmsg)
-                    elif "密码错误" in failmsg:
+                    elif "密码错误" in failmsg or "输入密码错误" in failmsg:
                         raise ZontesWrongPasswordError(failmsg)
                     else:
                         raise ZontesAuthError(failmsg or "Unknown authentication error")
