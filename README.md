@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数据。通过官方App接口获取车辆实时状态，支持多车辆自动轮询、数值转换及国际化显示。
+HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数据。通过官方App接口获取车辆实时状态，支持多车辆自动轮询、数值转换、国际化显示，并支持原生远程开锁/上锁控制。
 
 ---
 
@@ -10,6 +10,7 @@ HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数�
 - **纯AI写的**
 - **多车支持**：自动轮询账户下所有摩托车，每辆车创建独立设备。
 - **实时数据**：获取油量、胎压、续航、速度、电压、水温、里程、保养里程、GSM信号、卫星数、骑行时间、故障码、锁状态、车型等信息。
+- **远程控制**：支持通过私有 TCP 协议对车辆进行原生的远程开锁与上锁控制。
 - **数值修正**：
   - 胎压原始值自动 ×2 得到 kPa
   - 里程（总里程/小计里程）、电压、平均油耗原始值 ÷10 显示
@@ -30,7 +31,7 @@ HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数�
 
 ### 手动安装
 1. 下载 [最新发布版本](https://github.com/cdcp998/Zontes_Motorcycle-ha/releases/latest) 的 `Zontes_Motorcycle-ha.zip`。
-2. 解压到 Home Assistant 配置目录的 `custom_components/Zontes_Motorcycle-ha` 文件夹中。
+2. 解压到 Home Assistant 配置目录的 `custom_components/zontes_motorcycle` 文件夹中。
 3. 重启 Home Assistant。
 
 ---
@@ -46,7 +47,7 @@ HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数�
 
 ## 🧩 实体说明
 
-每辆车会生成以下实体（前缀为 `sensor.车型名称_`）：
+每辆车会生成以下实体（前缀为 `实体域.车型名称_`）：
 
 | 实体键 | 描述 | 单位 | 转换 |
 |--------|------|------|------|
@@ -68,22 +69,29 @@ HomeAssistant自定义集成，用于接入升仕（Zontes）智能摩托车数�
 | `oil_ause` | 平均油耗 | L/100km | 原始值 ÷10 |
 | `vehicle_model` | 车型 | - | 无 |
 
-此外，每辆车还包含一个**二进制传感器** `lock` 表示锁状态（开锁/关锁），以及一个**设备跟踪器** `location` 显示GPS位置。
+此外，每辆车还包含：
+- **锁控制实体 (`lock`)**：支持远程下发开锁与设防指令。
+- **二进制传感器 (`binary_sensor`)**：表示锁的当前物理状态（0=锁定，1=解锁）。
+- **设备跟踪器 (`device_tracker`)**：显示GPS位置。
 
 ---
 
 ## 🗂️ 文件结构
 
-```
-custom_components/zontes/
-├── __init__.py          # 集成入口
+```text
+custom_components/zontes_motorcycle/
+├── __init__.py          # 集成入口与数据协调器
 ├── manifest.json        # 元数据
 ├── config_flow.py       # 配置流
 ├── const.py             # 常量
-├── api.py               # API客户端
+├── api.py               # API客户端 (含4510 TCP协议与加解密逻辑)
 ├── sensor.py            # 传感器实体
 ├── binary_sensor.py     # 二进制传感器
+├── lock.py              # 远程锁控制实体
 ├── device_tracker.py    # 设备跟踪器
+├── convert.py           # 坐标纠偏与数值转换
+├── common.py            # 通用辅助函数
+├── zontes_4510_client.py # 独立调试脚本
 └── translations/        # 国际化文件
     ├── en.json
     └── zh-Hans.json
@@ -93,6 +101,7 @@ custom_components/zontes/
 
 ## ⚠️ 注意事项
 
+- **账号互踢说明**：升仕新版接口启用了单设备登录限制。为避免在 HA 轮询时将您的手机 App 踢下线，**建议在升仕 App 的“车辆授权”中将车辆授权给一个副账号，并在 HA 中使用该副账号进行配置**。
 - 首次添加集成时需要输入正确的账号密码，若账号未注册或密码错误会给出明确提示。
 - 如果车辆具有 `StartTime` / `EndTime` 授权时间，超出时间后对应实体将自动变为不可用。
 - 更新间隔不宜过短，建议至少30秒，避免被服务器限流。
@@ -101,11 +110,21 @@ custom_components/zontes/
 ---
 
 ## 🔄 更新日志
+
+### V0.3.1 (2026-08-27)
+- ✨ **接口迁移**：适配升仕官方最新版 `ifino.com:8081` API 与 OAuth2 鉴权架构。
+- ✨ **新增功能**：解析 4510 私有 TCP 协议，新增 `lock` 实体，支持远程开锁与上锁控制。
+- ✨ **实体扩充**：新增车架号、发动机号、车牌号等车辆档案及售后服务信息传感器。
+- 🐛 **修复缺陷**：校准锁状态映射（修正为 `lock=0` 锁定，`lock=1` 解锁）。
+- 🛡️ **稳定性优化**：增加 API 请求与 TCP 控制的退避重试机制，缓解服务端限流问题。
+
 ### V0.1.2 (2026-03-18)
 - ✨ 添加：GCJ-02自动转换WGS84 
+
 ### V0.1.1 (2026-03-18)
 - ✨ 添加：修改扫描间隔选项
 - 🐛 修复：domain错误
+
 ### v0.1.0 (2026-03-17)
 - ✨ 新增：多车辆自动轮询支持
 - ✨ 新增：授权时间管理，过期车辆自动移除
@@ -115,6 +134,7 @@ custom_components/zontes/
 - 🐛 修复：胎压、里程、电压、油耗数值转换错误
 - 🐛 修复：空字符串导致传感器崩溃的问题
 - 🌐 国际化：支持中文/英文实体名称
+
 ---
 
 ## 🤝 贡献
