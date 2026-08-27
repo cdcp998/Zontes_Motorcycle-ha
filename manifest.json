@@ -1,0 +1,13 @@
+{
+  "domain": "zontes_motorcycle",
+  "name": "Zontes Smart Motorcycle",
+  "version": "0.3.1",
+  "config_flow": true,
+  "documentation": "https://github.com/cdcp998/Zontes_Motorcycle-ha",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@cdcp998"],
+  "iot_class": "cloud_polling",
+  "loggers": ["custom_components.zontes_motorcycle"],
+  "issue_tracker": "https://github.com/cdcp998/Zontes_Motorcycle-ha/issues"
+}
