@@ -28,7 +28,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "binary_sensor", "device_tracker"]
+PLATFORMS = ["sensor", "binary_sensor", "device_tracker", "lock"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -116,13 +116,14 @@ async def _cleanup_stale_registry(
     for pke in known_pkes:
         expected |= sensor_unique_ids(pke)
         expected.add(f"{pke}_lock")
+        expected.add(f"{pke}_lock_control")
         expected.add(f"{pke}_location")
 
     removed_any = False
     for entity in list(ent_reg.entities.values()):
         if entity.config_entry_id != entry.entry_id:
             continue
-        if entity.domain not in ("sensor", "binary_sensor", "device_tracker"):
+        if entity.domain not in ("sensor", "binary_sensor", "device_tracker", "lock"):
             continue
         if entity.unique_id not in expected:
             _LOGGER.info("Removing stale entity %s (unique_id=%s)", entity.entity_id, entity.unique_id)

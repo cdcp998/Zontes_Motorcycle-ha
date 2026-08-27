@@ -70,6 +70,9 @@
     "binary_sensor": {
       "lock": { "name": "锁" }
     },
+    "lock": {
+      "lock_control": { "name": "远程锁" }
+    },
     "device_tracker": {
       "location": { "name": "车辆位置" }
     }
