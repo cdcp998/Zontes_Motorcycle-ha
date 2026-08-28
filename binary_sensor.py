@@ -58,21 +58,27 @@ class ZontesLockBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def available(self) -> bool:
         return motor_is_known(self._client, self._pke)
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # ⚠️ HA 经典大坑 (device_class="lock" 的 binary_sensor 语义与直觉相反!):
+    #   is_on = True  → HA 界面显示「解锁 / Unlocked」 → 官方接口 lock=1 (解锁)
+    #   is_on = False → HA 界面显示「已锁定 / Locked」 → 官方接口 lock=0 (设防)
+    # 所以 is_on 必须等于 (val == "1"), 千万别写成 val == "0" (会显示颠倒)!
+    # 官方依据: HA 核心源码 BinarySensorDeviceClass.LOCK 的注释
+    #   "# On means open (unlocked), Off means closed (locked)"
+    # 注意区分: lock 平台 (LockEntity) 的 is_locked=True 才是「已锁定」,
+    # 两套实体语义恰好相反, 不要互相套用!
+    # ═══════════════════════════════════════════════════════════════════════
     @property
     def is_on(self) -> Optional[bool]:
-        """是否处于设防/锁定态: 接口值 0 = 设防锁定, 1 = 解锁 (已实测校准)。
-
-        注意: HA 的 lock device_class 语义为 on=Locked, 故此处以 val=="0"
-        表示"已锁定"; 旧实现写成 val=="1" 导致状态显示恰好相反.
-        """
+        """是否处于解锁态 (HA lock device_class: is_on=True = 解锁/开)。"""
         data = self.coordinator.data
         if not data:
             return None
         val = data.get("by_motor", {}).get(self._pke, {}).get("myCarData", {}).get("lock")
         if val is None:
             return None
-        return str(val) == "0"
+        return str(val) == "1"
 
     @property
     def icon(self) -> str:
-        return "mdi:lock" if self.is_on else "mdi:lock-open"
+        return "mdi:lock-open" if self.is_on else "mdi:lock"
