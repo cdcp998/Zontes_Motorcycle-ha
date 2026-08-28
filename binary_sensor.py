@@ -60,14 +60,19 @@ class ZontesLockBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> Optional[bool]:
+        """是否处于设防/锁定态: 接口值 0 = 设防锁定, 1 = 解锁 (已实测校准)。
+
+        注意: HA 的 lock device_class 语义为 on=Locked, 故此处以 val=="0"
+        表示"已锁定"; 旧实现写成 val=="1" 导致状态显示恰好相反.
+        """
         data = self.coordinator.data
         if not data:
             return None
         val = data.get("by_motor", {}).get(self._pke, {}).get("myCarData", {}).get("lock")
         if val is None:
             return None
-        return str(val) == "1"
+        return str(val) == "0"
 
     @property
     def icon(self) -> str:
-        return "mdi:lock-open" if self.is_on else "mdi:lock"
+        return "mdi:lock" if self.is_on else "mdi:lock-open"
