@@ -113,21 +113,25 @@ def _command_frame(cmd: str) -> bytes:
 
 
 async def _read_until(reader, marker: bytes, timeout: float) -> bytes:
-    """读取直到出现 marker 或超时."""
+    """读取直到出现 marker 或总超时.
+
+    实测 (2026-08-28): 指令回显与设备确认 *AM 之间可能长达 0.8~5s 无数据
+    (车辆蜂窝唤醒), 空闲等待绝不能提前放弃, 否则误判失败触发无谓重试.
+    """
     buf = b""
     end = time.time() + timeout
     while time.time() < end:
         try:
             chunk = await asyncio.wait_for(reader.read(4096), max(0.2, end - time.time()))
-            if not chunk:
-                break
-            buf += chunk
-            if marker in buf:
-                return buf
         except asyncio.TimeoutError:
-            break
+            continue  # 空闲期间继续等待, 直到总超时
         except Exception:
             break
+        if not chunk:
+            break
+        buf += chunk
+        if marker in buf:
+            return buf
     return buf
 
 
@@ -135,6 +139,7 @@ async def async_send_command(command: str, timeout: float = 12.0) -> bool:
     """发送控制指令 (lock='ULoc' 上锁 / unlock='UClear' 开锁).
 
     Returns: True 表示设备确认执行成功 (AM,2,1 或 AM,1,1).
+    实测结论: 心跳帧 *UH 对短会话多余 (无心跳指令同样被接受), 已移除.
     """
     assert command in ("UClear", "ULoc")
     reader, writer = await asyncio.open_connection(CONTROL_HOST, CONTROL_PORT)
@@ -142,15 +147,14 @@ async def async_send_command(command: str, timeout: float = 12.0) -> bool:
         # 1. 登录
         writer.write(_rsa_encrypt(_login_frame()))
         await writer.drain()
-        # 2. 心跳
-        writer.write(_rsa_encrypt(_heartbeat_frame()))
-        await writer.drain()
-        # 3. 等待登录确认
-        await _read_until(reader, b",OK#", 5.0)
-        # 4. 发送控制指令
+        # 2. 等待登录确认 (未确认则直接失败, 避免多发无效指令)
+        resp = await _read_until(reader, b",OK#", 5.0)
+        if b",OK#" not in resp:
+            return False
+        # 3. 发送控制指令
         writer.write(_rsa_encrypt(_command_frame(command)))
         await writer.drain()
-        # 5. 等待设备确认 (UClear 成功=AM,2,1 / ULoc 成功=AM,1,1)
+        # 4. 等待设备确认 (UClear 成功=AM,2,1 / ULoc 成功=AM,1,1)
         want = b"AM,2,1" if command == "UClear" else b"AM,1,1"
         resp = await _read_until(reader, want, timeout)
         return want in resp

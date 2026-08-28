@@ -36,6 +36,8 @@ SERVICE_INFO_PATH = "/ma/service/info"
 #     登录帧 *UL     签名输入 = userCode 去 Z 前缀补零到 32 hex
 #     控制帧         签名输入 = mcuid (32 hex)
 #   指令: 上锁 = *ULoc, 开锁 = *UClear
+#   时序实测: 登录确认 ~4ms, 指令回显 ~10-20ms, 设备确认 *AM 0.8~5s
+#     (车辆蜂窝唤醒, 物理瓶颈); 心跳 *UH 短会话下多余, 不发送
 # ---------------------------------------------------------------------------
 CONTROL_HOST = "61.145.9.116"
 CONTROL_PORT = 4510
@@ -426,6 +428,11 @@ class ZontesApiClient:
 
     @staticmethod
     def _control_heartbeat_frame(user_code: str) -> bytes:
+        """心跳帧 *UH (官方 App 用于维持长连接, 每秒一次).
+
+        本集成是"连接->指令->关闭"的短会话, 实测无需心跳指令即被接受,
+        故 _send_4510_command 不再发送; 此方法保留作协议参考.
+        """
         import time as _time
 
         ts = _time.strftime("%Y/%m/%d %H:%M:%S")
@@ -440,11 +447,17 @@ class ZontesApiClient:
         return f"*{command},{user_code},{pke_code},{seq},{self._control_hash(seq, ts, mcuid)}".encode()
 
     async def _send_4510_command(self, command: str, pke_code: str) -> bool:
-        """连接 4510 通道: 登录 -> 心跳 -> 发送指令 -> 等待设备确认.
+        """连接 4510 通道: 登录 -> 发送指令 -> 等待设备确认.
 
         command: "ULoc" 上锁 / "UClear" 开锁
-        服务器对短时间内的重复连接有限流 (登录帧无响应/命令 FAIL),
-        故失败时带退避重试一次; 任何最终失败返回 False, 绝不外抛.
+
+        实测结论 (2026-08-28, benchmark_4510.py):
+        - 登录确认约 4ms, 指令回显约 10~20ms, 设备确认 *AM 为 0.8~5s
+          (车辆蜂窝唤醒耗时, 属物理瓶颈, 只能等不能省)
+        - 心跳帧 *UH 对本短会话是多余的: 无心跳时指令同样被接受 (实测成功),
+          且登录后立刻补发旧格式心跳反而可能导致会话静默丢弃指令 (实测失败)
+        - 服务器对短时间内的重复连接有限流 (登录帧无响应/命令 FAIL),
+          故仍保留 1 次带 2s 退避的重试; 任何最终失败返回 False, 绝不外抛
         """
         import asyncio
         import time as _time
@@ -464,17 +477,20 @@ class ZontesApiClient:
                 _LOGGER.error("4510 connect failed: %s", err)
                 continue
             try:
+                # 1. 登录
                 writer.write(self._rsa_encrypt(self._control_login_frame(user_code)))
                 await writer.drain()
-                writer.write(self._rsa_encrypt(self._control_heartbeat_frame(user_code)))
-                await writer.drain()
-                # 等待登录确认
-                await self._read_until(reader, b",OK#", 5.0)
-                # 发送控制指令
+                # 2. 等待登录确认; 未确认 (如被限流) 直接判本次失败,
+                #    避免向服务器多发无效指令加重限流
+                login_resp = await self._read_until(reader, b",OK#", 5.0)
+                if b",OK#" not in login_resp:
+                    _LOGGER.warning("4510 login not confirmed (attempt %d)", attempt + 1)
+                    continue
+                # 3. 发送控制指令 (无需心跳帧, 见方法 docstring)
                 writer.write(self._rsa_encrypt(self._control_command_frame(command, user_code, pke_code, mcuid)))
                 await writer.drain()
-                # 直接等待完整确认帧 (AM,2,1=UClear成功 / AM,1,1=ULoc成功),
-                # 避免以 "AM," 作短 marker 读到半截帧导致误判失败
+                # 4. 直接等待完整确认帧 (AM,2,1=UClear成功 / AM,1,1=ULoc成功),
+                #    避免以 "AM," 作短 marker 读到半截帧导致误判失败
                 want = b"AM,2,1" if command == "UClear" else b"AM,1,1"
                 resp = await self._read_until(reader, want, CONTROL_TIMEOUT)
                 ok = want in resp
@@ -493,7 +509,15 @@ class ZontesApiClient:
 
     @staticmethod
     async def _read_until(reader, marker: bytes, timeout: float) -> bytes:
-        """读取直到出现 marker 或超时; 任何失败返回已读内容."""
+        """读取直到出现 marker 或总超时; 任何失败返回已读内容.
+
+        实测 (2026-08-28, benchmark_4510.py): 服务器在登录确认后,
+        指令回显与设备确认帧 *AM 之间可能长达 0.8~5 秒没有任何数据
+        (车辆蜂窝唤醒耗时), 期间也不会收到任何保活帧.
+        因此这里的空闲等待**绝不能提前放弃**, 否则会把正常慢速确认误判为
+        失败, 触发无谓的重连重试 (旧实现 0.2s 空闲即 break, 正是语音控制
+        "秒开 vs 死等十几秒" 玄学延迟的根因).
+        """
         import asyncio
         import time as _time
 
@@ -501,15 +525,16 @@ class ZontesApiClient:
         end = _time.time() + timeout
         while _time.time() < end:
             try:
+                # 空闲超时只用于周期性检查剩余时间/连接状态, 超时后继续等待
                 chunk = await asyncio.wait_for(reader.read(4096), max(0.2, end - _time.time()))
-                if not chunk:
-                    break
-                buf += chunk
-                if marker in buf:
-                    break
             except asyncio.TimeoutError:
-                break
+                continue
             except Exception:  # noqa: BLE001
+                break
+            if not chunk:
+                break
+            buf += chunk
+            if marker in buf:
                 break
         return buf
 
