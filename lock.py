@@ -89,11 +89,16 @@ class ZontesLockEntity(CoordinatorEntity, LockEntity):
         await self._set_lock_state(locked=False)
 
     async def _set_lock_state(self, locked: bool) -> None:
-        """下发控制指令; 成功则立即刷新协调器状态, 失败抛出 HomeAssistantError。"""
+        """下发控制指令; 成功则后台刷新协调器状态, 失败抛出 HomeAssistantError。
+
+        指令确认 (AM 帧) 后不等待 REST 刷新: 实测 OAuth 登录需 6~20s,
+        若等待刷新会让语音控制在最坏情况下多等十几秒 (token 过期/网络抖动时).
+        改为后台刷新, 实体状态仍会随刷新完成自动对齐, 最迟由下轮轮询兜底.
+        """
         if not await self._client.async_set_lock_state(self._pke, locked):
             action = "lock" if locked else "unlock"
             raise HomeAssistantError(
                 f"Failed to {action} motorcycle {self._item_name or self._pke}"
             )
-        # 指令成功下发后主动刷新, 让实体状态尽快与服务端对齐
-        await self.coordinator.async_request_refresh()
+        # 指令已确认成功, 后台刷新让实体状态尽快与服务端对齐
+        self.hass.async_create_task(self.coordinator.async_request_refresh())
