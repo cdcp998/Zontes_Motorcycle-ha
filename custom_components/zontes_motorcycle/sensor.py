@@ -183,7 +183,7 @@ class ZontesSensor(CoordinatorEntity, SensorEntity):
         if self._api_key == "faultCode":
             language = self.hass.config.language
             translations = await async_get_translations(self.hass, language, "entity", [DOMAIN])
-            key = f"component.{DOMAIN}.entity.sensor.fault_code.no_fault"
+            key = f"component.{DOMAIN}.entity.sensor.fault_code.state.no_fault"
             self._no_fault_text = translations.get(key, "No Fault")
 
     @property

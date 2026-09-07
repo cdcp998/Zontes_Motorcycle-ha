@@ -48,7 +48,7 @@
       "water_temp": { "name": "Coolant Temperature" },
       "gsm_rssi": { "name": "GSM Signal" },
       "satellite_num": { "name": "Satellites" },
-      "fault_code": { "name": "Fault Code", "no_fault": "No Fault" },
+      "fault_code": { "name": "Fault Code", "state": { "no_fault": "No Fault" } },
       "vehicle_model": { "name": "Vehicle Model" },
       "serial_no": { "name": "Serial Number" },
       "vin": { "name": "VIN" },

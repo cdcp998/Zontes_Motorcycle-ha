@@ -48,7 +48,7 @@
       "water_temp": { "name": "水温" },
       "gsm_rssi": { "name": "GSM信号" },
       "satellite_num": { "name": "卫星数量" },
-      "fault_code": { "name": "故障码", "no_fault": "没有故障" },
+      "fault_code": { "name": "故障码", "state": { "no_fault": "没有故障" } },
       "vehicle_model": { "name": "车型" },
       "serial_no": { "name": "序列号" },
       "vin": { "name": "车架号" },
