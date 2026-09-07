@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  attach-zip:
+    name: Attach integration zip
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package custom component
+        run: |
+          cd custom_components/zontes_motorcycle
+          zip -r "$GITHUB_WORKSPACE/Zontes_Motorcycle-ha.zip" . -x "*.pyc" -x "__pycache__/*"
+
+      - name: Upload zip to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Zontes_Motorcycle-ha.zip
