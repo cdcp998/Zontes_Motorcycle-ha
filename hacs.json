@@ -1,7 +1,7 @@
 {
   "name": "Zontes Smart Motorcycle",
   "render_readme": true,
-  "country": ["CN", "EN"],
+  "country": ["CN"],
   "homeassistant": "2024.1.0",
   "iot_class": "Cloud Polling"
 }
