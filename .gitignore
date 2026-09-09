@@ -1,7 +1,31 @@
-_probe/ 
-__pycache__/ 
-*.apk 
-*.bin 
-*.pcap 
-*.dex 
+# 逆向抓包 / 探测工作区 (含原始报文、密钥候选、临时脚本)
+_probe/
+
+# Python 缓存与虚拟环境
+__pycache__/
 *.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# 二进制/内存转储与抓包 (隐私: 可能含真实会话)
+*.apk
+*.bin
+*.dump
+*.dmp
+*.pcap
+*.dex
+*.hprof
+*.jar
+*.zip.tmp
+
+# 本地敏感配置 (Home Assistant 等)
+secrets.yaml
+*.secrets.yaml
+.env
+.env.*
+
+# 编辑器/IDE
+.idea/
+.vscode/
+*.swp
