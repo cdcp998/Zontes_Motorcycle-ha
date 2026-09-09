@@ -46,7 +46,7 @@ RSA_PUBLIC_KEY_B64 = (
 )
 AES_FIXED_KEY = b"TAYOBTa1YCWc2gTS"
 
-# 账号相关 (来自 REST 登录与车辆档案)
+# 账号相关 (来自 REST 登录与车辆档案 调试使用)
 USER_CODE = "YOUR_USER_CODE"          # 替换为您自己的 userCode (例如: Z2026xxxxxxxx)
 PKE_CODE = "YOUR_PKE_CODE"           # 替换为您自己的 PKECode
 MCUID = "YOUR_MCUID"                 # 替换为您自己的 mcuid (32位16进制字符)
