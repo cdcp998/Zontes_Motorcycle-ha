@@ -46,11 +46,11 @@ RSA_PUBLIC_KEY_B64 = (
 )
 AES_FIXED_KEY = b"TAYOBTa1YCWc2gTS"
 
-# 账号相关 (来自 REST 登录与车辆档案)
-USER_CODE = "Z202601280382"          # 登录返回 data.user.code
-PKE_CODE = "868508086783183"         # 车辆 PKECode
-MCUID = "EAAD2C99E71F45F117F87030B1195498"  # 车辆 mcuid
-APP_VERSION = "1.55"
+# 账号相关 (来自 REST 登录与车辆档案 调试使用)
+USER_CODE = "YOUR_USER_CODE"          # 替换为您自己的 userCode (例如: Z2026xxxxxxxx)
+PKE_CODE = "YOUR_PKE_CODE"           # 替换为您自己的 PKECode
+MCUID = "YOUR_MCUID"                 # 替换为您自己的 mcuid (32位16进制字符)
+APP_VERSION = "1.56"
 
 # macGuid 不被服务器校验, 可任意稳定值 (此处由 userCode 派生)
 def _make_mac_guid(seed: str) -> str:
