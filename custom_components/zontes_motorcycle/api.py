@@ -37,12 +37,24 @@ SERVICE_INFO_PATH = "/ma/service/info"
 #     登录帧 *UL     签名输入 = userCode 去 Z 前缀补零到 32 hex
 #     控制帧         签名输入 = mcuid (32 hex)
 #   指令: 上锁 = *ULoc, 开锁 = *UClear
-#   时序实测: 登录确认 ~4ms, 指令回显 ~10-20ms, 设备确认 *AM 0.8~5s
-#     (车辆蜂窝唤醒, 物理瓶颈); 心跳 *UH 短会话下多余, 不发送
-#   兼容性实测 (2026-09-07, v1.56):
-#     登录/指令帧格式与哈希算法和官方 1.56 App 完全一致 (抓包+反算验证);
-#     官方服务端当日起仅放行 App 自建会话, 网关对非 App 会话的指令静默丢弃,
-#     属服务端会话绑定策略, 需与官方 App 注册凭据对齐后方可恢复控车.
+#   帧纪律 (2026-09-09 与第三方客户端《骑仕》1.56 抓包逐字节对齐):
+#     - 哈希一律大写 32 hex; 登录帧 *UL 结尾不带 '#', 版本字段后即结束;
+#     - 时间戳为秒级 14 位 yyyyMMddHHmmss, seq 为 8 位随机数字;
+#     - 登录/指令内容已离线反算验证与骑仕完全一致 (4 会话 8 帧全匹配,
+#       tests/test_4510_qishi_vectors.py 固化了这些抓包向量).
+#   时序实测: 登录确认 ~40-60ms, 指令回显 ~50-100ms (服务器接受即转发车辆);
+#     设备确认 *AM 属"长连接才有"的可选回执: 官方/骑仕 App 均在收到指令回显
+#     '*,OK#' 后立即关闭连接 (约 40ms), 不再等 *AM, 车辆异步执行成功.
+#     心跳 *UH 短会话下多余, 不发送.
+#   定案 (2026-09-09, 已实测打通):
+#     服务端对登录帧与指令帧使用两把不同的 RSA 私钥!
+#       - 登录帧 *UL            -> 用 CONTROL_RSA_PUBLIC_KEY (A 钥) 加密
+#       - 指令/保活帧           -> 用 CONTROL_CMD_RSA_PUBLIC_KEY (K1 钥) 加密
+#     此前"登录 OK 但指令静默"的根因即: 指令帧误用了 A 钥, 服务端指令私钥
+#     无法解密 -> 静默丢弃。K1 钥 2026-09-09 自官方 msbox v1.56 运行内存提取,
+#     实测 UClear/ULoc 均获指令回显 + *AM,1/2,1# 设备确认 (详见 tools 脚本与
+#     _probe/exp_k1*.py 记录). 该钥可能随 App 版本轮换, 可用
+#     ZONTES_4510_CMD_KEY 环境变量整体热覆盖.
 #   热改说明: 以下三项支持用环境变量覆盖 (ZONTES_4510_HOST / _PORT / _VERSION),
 #     便于网关迁移/版本更新时无需改代码即可热修.
 # ---------------------------------------------------------------------------
@@ -65,6 +77,19 @@ CONTROL_RSA_PUBLIC_KEY = (
 )
 CONTROL_AES_KEY = b"TAYOBTa1YCWc2gTS"
 CONTROL_APP_VERSION = _env_str("ZONTES_4510_VERSION", "1.56")
+# 指令帧 RSA 公钥 (与登录帧 *UL 不同! 2026-09-09 从官方 msbox 内存提取确认):
+#   - 登录帧 *UL / *BR 应答: 用 CONTROL_RSA_PUBLIC_KEY (旧 A 钥)
+#   - 指令帧 *UClear/*ULoc 与保活帧: 用 CONTROL_CMD_RSA_PUBLIC_KEY (K1 钥)
+#   - 用 A 钥加密指令帧会被服务端静默丢弃 (此前"登录OK但指令无回显"的根因)
+#   该钥随 App 版本可能轮换, 支持 ZONTES_4510_CMD_KEY 环境变量热覆盖.
+CONTROL_CMD_RSA_PUBLIC_KEY = _env_str("ZONTES_4510_CMD_KEY", "") or (
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4dC+NDZ5+sLY6On61P3vhtb1kj1"
+    "ESDmhUtI1pmusCteb5gyG+RZAwhTAX7laECNDUNMMmRpUsmO+9YJtGTPERXwWfmPM6YhgsD9"
+    "3D4cYa0N6y9g+YFvfYZMuUplPYyAylP1Gj+MVidy0/xHw7KGKmwkARsJpUXmj89UqAomEhlL"
+    "wXtT0s216zZR3o9CByFPqnOtjYPNRmP9tDfHeMGgkXIVCzG7/z4VbEBQ6s99XDvzncUQUI7N"
+    "wLAi0ZMz9+poC7C7eHtQAQdX4Wwlbe91L49rac48tV0C5bF34QkYw0RtwHsLEgPpmfdaYF4"
+    "1jlnZU5EVEDPzxkgb/zKfvgI6jpQIDAQAB"
+)
 CONTROL_TIMEOUT = 12.0
 GLOBAL_HEADERS = {
     "User-Agent": "okhttp/4.9.3",
@@ -378,6 +403,29 @@ class ZontesApiClient:
             return PKCS1_v1_5.new(RSA.import_key(CONTROL_RSA_PUBLIC_KEY)).encrypt(plain)
 
     @staticmethod
+    def _rsa_encrypt_cmd(plain: bytes) -> bytes:
+        """指令帧专用 RSA-2048 PKCS1 v1.5 加密 (K1 钥, 与登录帧 A 钥不同).
+
+        2026-09-09 实测定案: 用登录钥 A 加密指令帧会被服务端静默丢弃
+        (登录正常、指令零回显的根因); 指令/保活帧必须用 CONTROL_CMD_RSA_PUBLIC_KEY.
+        """
+        import base64
+
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import padding
+
+            pub = serialization.load_der_public_key(
+                base64.b64decode(CONTROL_CMD_RSA_PUBLIC_KEY)
+            )
+            return pub.encrypt(plain, padding.PKCS1v15())
+        except ImportError:  # pragma: no cover - pycryptodome fallback
+            from Crypto.Cipher import PKCS1_v1_5
+            from Crypto.PublicKey import RSA
+
+            return PKCS1_v1_5.new(RSA.import_key(CONTROL_CMD_RSA_PUBLIC_KEY)).encrypt(plain)
+
+    @staticmethod
     def _control_hash(seq: str, timestamp: str, hex_input: str) -> str:
         """实现 App xlb.f()/a() 帧签名: AES(M(hex_input)) 派生密钥 -> 加密时间戳.
 
@@ -440,9 +488,10 @@ class ZontesApiClient:
         str_ul = user_code.lstrip("Z").ljust(32, "0")
         seq = "".join(str(random.randint(0, 9)) for _ in range(8))
         ts = _time.strftime("%Y%m%d%H%M%S")
+        # 骑仕逐字节对齐: 哈希大写, 版本后不带 '#' (服务端按字段解析)
         frame = (
             f"*UL,{user_code},{self._control_mac_guid(user_code)},0.0,0.0,"
-            f"{seq},{self._control_hash(seq, ts, str_ul)},{CONTROL_APP_VERSION}#"
+            f"{seq},{self._control_hash(seq, ts, str_ul).upper()},{CONTROL_APP_VERSION}"
         )
         return frame.encode()
 
@@ -464,20 +513,24 @@ class ZontesApiClient:
 
         seq = "".join(str(random.randint(0, 9)) for _ in range(8))
         ts = _time.strftime("%Y%m%d%H%M%S")
-        return f"*{command},{user_code},{pke_code},{seq},{self._control_hash(seq, ts, mcuid)}".encode()
+        # 骑仕逐字节对齐: 哈希大写; 指令帧本就不带结尾 '#'
+        return f"*{command},{user_code},{pke_code},{seq},{self._control_hash(seq, ts, mcuid).upper()}".encode()
 
     async def _send_4510_command(self, command: str, pke_code: str) -> bool:
-        """连接 4510 通道: 登录 -> 发送指令 -> 等待设备确认.
+        """连接 4510 通道: 登录 -> 发送指令 -> 以服务器指令回显为成功.
 
         command: "ULoc" 上锁 / "UClear" 开锁
 
-        实测结论 (2026-08-28, benchmark_4510.py):
-        - 登录确认约 4ms, 指令回显约 10~20ms, 设备确认 *AM 为 0.8~5s
-          (车辆蜂窝唤醒耗时, 属物理瓶颈, 只能等不能省)
-        - 心跳帧 *UH 对本短会话是多余的: 无心跳时指令同样被接受 (实测成功),
-          且登录后立刻补发旧格式心跳反而可能导致会话静默丢弃指令 (实测失败)
-        - 服务器对短时间内的重复连接有限流 (登录帧无响应/命令 FAIL),
-          故仍保留 1 次带 2s 退避的重试; 任何最终失败返回 False, 绝不外抛
+        成功判据 (2026-09-09 与骑仕 1.56 抓包对齐):
+        - 服务器对指令回显 '*UClear|*ULoc,...,OK#' 即表示"已接受并转发车辆",
+          骑仕 App 在收到该回显约 40ms 后就关闭连接, 并不等待设备 *AM 确认,
+          车辆随后异步执行 (锁实体配合 REST 轮询状态刷新兜底核对真实结果).
+        - *AM,x,1 是"长连接保持才可能收到"的附加回执 (2026-08-28 实测 0.8~5s),
+          本实现不再为等它而挂起; 若同一连接内顺带到达则仅记日志.
+        - 登录确认后发送指令前不补心跳: 短会话下心跳多余 (实测无心跳指令
+          同样被接受, 紧贴登录发旧格式心跳反而会致会话丢弃指令).
+        - 服务器对短时间重复连接有限流 (登录帧无响应/指令无回显), 保留 1 次
+          带 2s 退避的重试; 任何最终失败返回 False, 绝不外抛.
         """
         import asyncio
         import time as _time
@@ -513,20 +566,28 @@ class ZontesApiClient:
                     continue
                 _LOGGER.debug("4510 login OK (attempt %d) raw=%r", attempt + 1, login_resp[-200:])
                 # 3. 发送控制指令 (无需心跳帧, 见方法 docstring)
-                writer.write(self._rsa_encrypt(self._control_command_frame(command, user_code, pke_code, mcuid)))
+                # 指令帧必须用 K1 钥加密 (登录钥 A 加密会被静默丢弃, 见头注释)
+                writer.write(self._rsa_encrypt_cmd(self._control_command_frame(command, user_code, pke_code, mcuid)))
                 await writer.drain()
-                # 4. 直接等待完整确认帧 (AM,2,1=UClear成功 / AM,1,1=ULoc成功),
-                #    避免以 "AM," 作短 marker 读到半截帧导致误判失败
-                want = b"AM,2,1" if command == "UClear" else b"AM,1,1"
-                resp = await self._read_until(reader, want, CONTROL_TIMEOUT)
-                ok = want in resp
+                # 4. 以服务器指令回显 ',OK#' 为成功判据 (骑仕同款: 收到即关闭,
+                #    车辆异步执行; *AM 若在同一连接内到达仅作附加日志)
+                resp = await self._read_until(reader, b",OK#", CONTROL_TIMEOUT)
+                ok = b",OK#" in resp
                 if ok:
-                    _LOGGER.debug("4510 %s device confirmed, server raw=%r", command, resp[-200:])
+                    # 区分"指令回显成功"与"顺带收到设备确认"
+                    am_extra = b"*AM" in resp
+                    _LOGGER.debug(
+                        "4510 %s server accepted (attempt %d) am=%s raw=%r",
+                        command,
+                        attempt + 1,
+                        am_extra,
+                        resp[-200:],
+                    )
                     return True
-                # 失败时同样透传原始回显: 区分"服务器拒绝(无回显/错误帧)"与
-                # "车辆无确认(有指令回显但无 AM)", 便于第一时间判断协议漂移
+                # 失败时透传服务器原始回显: 区分"服务器静默丢弃(无任何回显)"与
+                # "协议漂移/错误帧", 便于第一时间判断服务端是否调整协议
                 _LOGGER.warning(
-                    "4510 %s not confirmed (attempt %d); server raw reply: %r",
+                    "4510 %s not echoed (attempt %d); server raw reply: %r",
                     command,
                     attempt + 1,
                     resp[-300:],
@@ -545,12 +606,11 @@ class ZontesApiClient:
     async def _read_until(reader, marker: bytes, timeout: float) -> bytes:
         """读取直到出现 marker 或总超时; 任何失败返回已读内容.
 
-        实测 (2026-08-28, benchmark_4510.py): 服务器在登录确认后,
-        指令回显与设备确认帧 *AM 之间可能长达 0.8~5 秒没有任何数据
-        (车辆蜂窝唤醒耗时), 期间也不会收到任何保活帧.
-        因此这里的空闲等待**绝不能提前放弃**, 否则会把正常慢速确认误判为
-        失败, 触发无谓的重连重试 (旧实现 0.2s 空闲即 break, 正是语音控制
-        "秒开 vs 死等十几秒" 玄学延迟的根因).
+        空闲等待**绝不能提前放弃**: 服务器在登录确认后、下发任何回显前可能
+        存在数百毫秒静默 (2026-08-28 实测指令回显与设备确认 *AM 间可达
+        0.8~5s), 提前放弃会把正常慢速确认误判为失败, 触发无谓重连重试
+        (旧实现 0.2s 空闲即 break, 正是语音控制"秒开 vs 死等十几秒"的根因).
+        指令场景下 marker=',OK#' 通常在 50~100ms 到达, 到达即返回.
         """
         import asyncio
         import time as _time
@@ -580,7 +640,9 @@ class ZontesApiClient:
             locked: True = 上锁/设防 (*ULoc), False = 解锁 (*UClear)
 
         Returns:
-            True = 设备已确认执行成功; 任何失败返回 False, 绝不外抛.
+            True = 服务器已回显接受指令 (骑仕同款判据, 车辆异步执行,
+            真实结果由 coordinator 轮询 myCarData.lock 兜底核对);
+            任何失败返回 False, 绝不外抛.
         """
         if not self.access_token or not pke_code:
             return False
