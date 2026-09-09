@@ -14,6 +14,7 @@
 from datetime import datetime
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -29,7 +30,7 @@ DATA_SERVICE_PATH = "/pkeapp/gx/pke/carData/getDataService"
 USER_CENTER_DATA_PATH = "/pkeapp/gx/pke/carData/getUserCenterData"
 SERVICE_INFO_PATH = "/ma/service/info"
 # ---------------------------------------------------------------------------
-# 4510 远程控制协议 (从官方 App com.tayo.msbox 逆向提取)
+# 4510 远程控制网关配置 (集中在此, 官方迁移/调整时优先只改这里)
 #   通道: TCP 61.145.9.116:4510, 自定义文本协议, 帧以 '#' 分隔
 #   加密: 每帧用内嵌 RSA-2048 公钥加密 (RSA/ECB/PKCS1Padding) -> 256 字节
 #   签名: AES-128-ECB-NoPadding, 固定密钥, 输入 = 时间戳14位 + 0x00 + 0x00
@@ -38,9 +39,22 @@ SERVICE_INFO_PATH = "/ma/service/info"
 #   指令: 上锁 = *ULoc, 开锁 = *UClear
 #   时序实测: 登录确认 ~4ms, 指令回显 ~10-20ms, 设备确认 *AM 0.8~5s
 #     (车辆蜂窝唤醒, 物理瓶颈); 心跳 *UH 短会话下多余, 不发送
+#   兼容性实测 (2026-09-07, v1.56):
+#     登录/指令帧格式与哈希算法和官方 1.56 App 完全一致 (抓包+反算验证);
+#     官方服务端当日起仅放行 App 自建会话, 网关对非 App 会话的指令静默丢弃,
+#     属服务端会话绑定策略, 需与官方 App 注册凭据对齐后方可恢复控车.
+#   热改说明: 以下三项支持用环境变量覆盖 (ZONTES_4510_HOST / _PORT / _VERSION),
+#     便于网关迁移/版本更新时无需改代码即可热修.
 # ---------------------------------------------------------------------------
-CONTROL_HOST = "61.145.9.116"
-CONTROL_PORT = 4510
+def _env_str(name: str, default: str) -> str:
+    value = os.environ.get(name)
+    return value if value else default
+
+CONTROL_HOST = _env_str("ZONTES_4510_HOST", "61.145.9.116")
+CONTROL_PORT = int(_env_str("ZONTES_4510_PORT", "4510"))
+# 真实设备注册 GUID 覆盖: 设 ZONTES_4510_MACGUID=xxxxxxxx-xxxx-... 后,
+# 登录帧 *UL 第三字段使用该 GUID (官方 App 用真实设备 GUID); 默认留空=userCode派生
+CONTROL_MAC_GUID_OVERRIDE = os.environ.get("ZONTES_4510_MACGUID") or None
 CONTROL_RSA_PUBLIC_KEY = (
     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmbPvFemEPV+0Qbl0kmUfIHIf"
     "lBdKvlp9CmIuAxxpkfMcvAS4DNqGd8xn7ce3FFeDoUixF8JEFgfsek+bcSXgbc3E8Uj1u"
@@ -50,7 +64,7 @@ CONTROL_RSA_PUBLIC_KEY = (
     "DomyHxIBTD9dQu4q79oSMpD+oXiAfaiy7Jv+RlUOJQIDAQAB"
 )
 CONTROL_AES_KEY = b"TAYOBTa1YCWc2gTS"
-CONTROL_APP_VERSION = "1.55"
+CONTROL_APP_VERSION = _env_str("ZONTES_4510_VERSION", "1.56")
 CONTROL_TIMEOUT = 12.0
 GLOBAL_HEADERS = {
     "User-Agent": "okhttp/4.9.3",
@@ -407,7 +421,13 @@ class ZontesApiClient:
 
     @staticmethod
     def _control_mac_guid(user_code: str) -> str:
-        """macGuid 服务器不校验, 用 userCode 派生稳定值即可."""
+        """登录帧 *UL 第 3 字段 (终端标识).
+
+        服务器不校验其取值 (实测派生/真实 GUID 均可登录), 默认用 userCode 派生
+        稳定值; 如需模拟真实设备 (设 ZONTES_4510_MACGUID) 可整体覆盖.
+        """
+        if CONTROL_MAC_GUID_OVERRIDE:
+            return CONTROL_MAC_GUID_OVERRIDE
         import hashlib
 
         h = hashlib.md5(user_code.encode()).hexdigest()
@@ -484,8 +504,14 @@ class ZontesApiClient:
                 #    避免向服务器多发无效指令加重限流
                 login_resp = await self._read_until(reader, b",OK#", 5.0)
                 if b",OK#" not in login_resp:
-                    _LOGGER.warning("4510 login not confirmed (attempt %d)", attempt + 1)
+                    # 把服务器原始回复透传进日志, 便于判断协议是否被官方调整
+                    _LOGGER.warning(
+                        "4510 login not confirmed (attempt %d); server raw reply: %r",
+                        attempt + 1,
+                        login_resp[-300:],
+                    )
                     continue
+                _LOGGER.debug("4510 login OK (attempt %d) raw=%r", attempt + 1, login_resp[-200:])
                 # 3. 发送控制指令 (无需心跳帧, 见方法 docstring)
                 writer.write(self._rsa_encrypt(self._control_command_frame(command, user_code, pke_code, mcuid)))
                 await writer.drain()
@@ -494,9 +520,17 @@ class ZontesApiClient:
                 want = b"AM,2,1" if command == "UClear" else b"AM,1,1"
                 resp = await self._read_until(reader, want, CONTROL_TIMEOUT)
                 ok = want in resp
-                _LOGGER.debug("4510 %s response: %s -> %s", command, resp, ok)
                 if ok:
+                    _LOGGER.debug("4510 %s device confirmed, server raw=%r", command, resp[-200:])
                     return True
+                # 失败时同样透传原始回显: 区分"服务器拒绝(无回显/错误帧)"与
+                # "车辆无确认(有指令回显但无 AM)", 便于第一时间判断协议漂移
+                _LOGGER.warning(
+                    "4510 %s not confirmed (attempt %d); server raw reply: %r",
+                    command,
+                    attempt + 1,
+                    resp[-300:],
+                )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("4510 %s command failed: %s", command, err)
             finally:
