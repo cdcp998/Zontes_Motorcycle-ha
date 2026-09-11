@@ -46,17 +46,19 @@ SERVICE_INFO_PATH = "/ma/service/info"
 #     设备确认 *AM 属"长连接才有"的可选回执: 官方/骑仕 App 均在收到指令回显
 #     '*,OK#' 后立即关闭连接 (约 40ms), 不再等 *AM, 车辆异步执行成功.
 #     心跳 *UH 短会话下多余, 不发送.
-#   定案 (2026-09-09, 已实测打通):
-#     服务端对登录帧与指令帧使用两把不同的 RSA 私钥!
-#       - 登录帧 *UL            -> 用 CONTROL_RSA_PUBLIC_KEY (A 钥) 加密
-#       - 指令/保活帧           -> 用 CONTROL_CMD_RSA_PUBLIC_KEY (K1 钥) 加密
-#     此前"登录 OK 但指令静默"的根因即: 指令帧误用了 A 钥, 服务端指令私钥
-#     无法解密 -> 静默丢弃。K1 钥 2026-09-09 自官方 msbox v1.56 运行内存提取,
-#     实测 UClear/ULoc 均获指令回显 + *AM,1/2,1# 设备确认 (详见 tools 脚本与
-#     _probe/exp_k1*.py 记录). 该钥可能随 App 版本轮换, 可用
-#     ZONTES_4510_CMD_KEY 环境变量整体热覆盖.
-#   热改说明: 以下三项支持用环境变量覆盖 (ZONTES_4510_HOST / _PORT / _VERSION),
-#     便于网关迁移/版本更新时无需改代码即可热修.
+#   密钥定案 (2026-09-11 修订, 已实测打通):
+#     服务端同一时期只认"一把活动钥", 登录帧与指令帧必须用同一把钥加密:
+#       - 活动钥 = CONTROL_ACTIVE_RSA_PUBLIC_KEY (K1): 登录帧 *UL 与指令帧
+#         *UClear/*ULoc 统一使用;
+#       - 历史登录钥 A (CONTROL_LEGACY_LOGIN_RSA_PUBLIC_KEY) 已被服务端彻底
+#         退役: 用 A 钥加密的登录帧会被静默丢弃 (TCP 不断开、零字节回显),
+#         集成即判"登录未确认"且不下发任何指令 —— 这正是 2026-09-11 "HA 控车
+#         失败、骑仕 App 正常"故障的根因 (骑仕握的是活动钥, 硬编码的 A 钥已死).
+#     换钥复发时的定位手法: 取任意一条当前可用客户端的登录密文回放, 确认服务端
+#     仍活着; 再用同一段明文分别以候选钥重新加密后直连试发 —— 有 ',OK#' 回显的
+#     那把即为活动钥, 用 ZONTES_4510_CMD_KEY 注入即可热恢复, 无需改代码.
+#   热改说明: 以下四项支持用环境变量覆盖 (ZONTES_4510_HOST / _PORT / _VERSION /
+#     _CMD_KEY=活动钥整体替换), 便于网关迁移/服务端换钥时无需改代码即可热修.
 # ---------------------------------------------------------------------------
 def _env_str(name: str, default: str) -> str:
     value = os.environ.get(name)
@@ -67,7 +69,9 @@ CONTROL_PORT = int(_env_str("ZONTES_4510_PORT", "4510"))
 # 真实设备注册 GUID 覆盖: 设 ZONTES_4510_MACGUID=xxxxxxxx-xxxx-... 后,
 # 登录帧 *UL 第三字段使用该 GUID (官方 App 用真实设备 GUID); 默认留空=userCode派生
 CONTROL_MAC_GUID_OVERRIDE = os.environ.get("ZONTES_4510_MACGUID") or None
-CONTROL_RSA_PUBLIC_KEY = (
+# 历史登录公钥 (Key-A): **2026-09-11 起已被服务端彻底退役** —— 用其加密的登录帧
+# 会被静默丢弃 (零回显), 生产路径不再使用; 仅作史料与应急回退参考保留。
+CONTROL_LEGACY_LOGIN_RSA_PUBLIC_KEY = (
     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmbPvFemEPV+0Qbl0kmUfIHIf"
     "lBdKvlp9CmIuAxxpkfMcvAS4DNqGd8xn7ce3FFeDoUixF8JEFgfsek+bcSXgbc3E8Uj1u"
     "iBY8MBHNz07C4W+iKQeywkspZhiR65cBJMQye7NQt69Lfc2Uqh66PElyEINg5P3iOLfR3"
@@ -77,12 +81,11 @@ CONTROL_RSA_PUBLIC_KEY = (
 )
 CONTROL_AES_KEY = b"TAYOBTa1YCWc2gTS"
 CONTROL_APP_VERSION = _env_str("ZONTES_4510_VERSION", "1.56")
-# 指令帧 RSA 公钥 (与登录帧 *UL 不同! 2026-09-09 从官方 msbox 内存提取确认):
-#   - 登录帧 *UL / *BR 应答: 用 CONTROL_RSA_PUBLIC_KEY (旧 A 钥)
-#   - 指令帧 *UClear/*ULoc 与保活帧: 用 CONTROL_CMD_RSA_PUBLIC_KEY (K1 钥)
-#   - 用 A 钥加密指令帧会被服务端静默丢弃 (此前"登录OK但指令无回显"的根因)
-#   该钥随 App 版本可能轮换, 支持 ZONTES_4510_CMD_KEY 环境变量热覆盖.
-CONTROL_CMD_RSA_PUBLIC_KEY = _env_str("ZONTES_4510_CMD_KEY", "") or (
+# 活动控制公钥 (Key-K1): 登录帧 *UL 与指令帧 *UClear/*ULoc 统一使用。
+#   来源: 2026-09-09 自官方 msbox v1.56 运行内存提取;
+#   2026-09-11 实测确认它同时是登录帧的唯一可用钥 (旧 A 钥已退役)。
+#   服务端换钥/App 升级时可用 ZONTES_4510_CMD_KEY 环境变量整体热覆盖。
+CONTROL_ACTIVE_RSA_PUBLIC_KEY = _env_str("ZONTES_4510_CMD_KEY", "") or (
     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4dC+NDZ5+sLY6On61P3vhtb1kj1"
     "ESDmhUtI1pmusCteb5gyG+RZAwhTAX7laECNDUNMMmRpUsmO+9YJtGTPERXwWfmPM6YhgsD9"
     "3D4cYa0N6y9g+YFvfYZMuUplPYyAylP1Gj+MVidy0/xHw7KGKmwkARsJpUXmj89UqAomEhlL"
@@ -90,6 +93,9 @@ CONTROL_CMD_RSA_PUBLIC_KEY = _env_str("ZONTES_4510_CMD_KEY", "") or (
     "wLAi0ZMz9+poC7C7eHtQAQdX4Wwlbe91L49rac48tV0C5bF34QkYw0RtwHsLEgPpmfdaYF4"
     "1jlnZU5EVEDPzxkgb/zKfvgI6jpQIDAQAB"
 )
+# 兼容旧常量名, 避免外部脚本/热补丁引用断裂 (语义见各自注释):
+CONTROL_CMD_RSA_PUBLIC_KEY = CONTROL_ACTIVE_RSA_PUBLIC_KEY      # 旧名"指令帧专用钥"
+CONTROL_RSA_PUBLIC_KEY = CONTROL_LEGACY_LOGIN_RSA_PUBLIC_KEY    # 旧名"登录帧 A 钥"(已退役)
 CONTROL_TIMEOUT = 12.0
 GLOBAL_HEADERS = {
     "User-Agent": "okhttp/4.9.3",
@@ -384,46 +390,35 @@ class ZontesApiClient:
             return AES.new(key, AES.MODE_ECB).encrypt(data)
 
     @staticmethod
-    def _rsa_encrypt(plain: bytes) -> bytes:
-        """RSA-2048 PKCS1 v1.5 加密 (App 内嵌公钥, 服务器持私钥解密)."""
+    def _rsa_encrypt_with(key_b64: str, plain: bytes) -> bytes:
+        """用指定 DER-Base64 公钥做 RSA-2048 PKCS1 v1.5 加密 (256 字节密文)."""
         import base64
 
         try:
             from cryptography.hazmat.primitives import serialization
             from cryptography.hazmat.primitives.asymmetric import padding
 
-            pub = serialization.load_der_public_key(
-                base64.b64decode(CONTROL_RSA_PUBLIC_KEY)
-            )
+            pub = serialization.load_der_public_key(base64.b64decode(key_b64))
             return pub.encrypt(plain, padding.PKCS1v15())
         except ImportError:  # pragma: no cover - pycryptodome fallback
             from Crypto.Cipher import PKCS1_v1_5
             from Crypto.PublicKey import RSA
 
-            return PKCS1_v1_5.new(RSA.import_key(CONTROL_RSA_PUBLIC_KEY)).encrypt(plain)
+            return PKCS1_v1_5.new(RSA.import_key(base64.b64decode(key_b64))).encrypt(plain)
 
     @staticmethod
-    def _rsa_encrypt_cmd(plain: bytes) -> bytes:
-        """指令帧专用 RSA-2048 PKCS1 v1.5 加密 (K1 钥, 与登录帧 A 钥不同).
+    def _rsa_encrypt(plain: bytes) -> bytes:
+        """帧加密统一入口: 登录帧 *UL 与指令帧 *UClear/*ULoc 同用活动钥 (K1).
 
-        2026-09-09 实测定案: 用登录钥 A 加密指令帧会被服务端静默丢弃
-        (登录正常、指令零回显的根因); 指令/保活帧必须用 CONTROL_CMD_RSA_PUBLIC_KEY.
+        2026-09-11 修订: 服务端同一时期只认一把活动钥, 登录与指令必须同钥 ——
+        此前登录帧单独使用 Key-A, 该钥被服务端退役后登录帧遭静默丢弃
+        (现象: 登录 5s 零回显、车辆无任何反应), 而手持活动钥的骑仕 App 正常。
+        现统一走 CONTROL_ACTIVE_RSA_PUBLIC_KEY, 支持 ZONTES_4510_CMD_KEY 热覆盖。
         """
-        import base64
+        return ZontesApiClient._rsa_encrypt_with(CONTROL_ACTIVE_RSA_PUBLIC_KEY, plain)
 
-        try:
-            from cryptography.hazmat.primitives import serialization
-            from cryptography.hazmat.primitives.asymmetric import padding
-
-            pub = serialization.load_der_public_key(
-                base64.b64decode(CONTROL_CMD_RSA_PUBLIC_KEY)
-            )
-            return pub.encrypt(plain, padding.PKCS1v15())
-        except ImportError:  # pragma: no cover - pycryptodome fallback
-            from Crypto.Cipher import PKCS1_v1_5
-            from Crypto.PublicKey import RSA
-
-            return PKCS1_v1_5.new(RSA.import_key(CONTROL_CMD_RSA_PUBLIC_KEY)).encrypt(plain)
+    # 历史调用名兼容 (旧语义"指令帧专用钥"): 自登录/指令同钥起二者完全等价。
+    _rsa_encrypt_cmd = _rsa_encrypt
 
     @staticmethod
     def _control_hash(seq: str, timestamp: str, hex_input: str) -> str:
@@ -482,6 +477,11 @@ class ZontesApiClient:
         return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
 
     def _control_login_frame(self, user_code: str) -> bytes:
+        """登录帧 *UL (明文; 调用方负责用活动钥 RSA 加密后再发送)。
+
+        2026-09-11 修订: 本帧不再有"专属登录钥", 与指令帧共用活动钥 —— 加密入口
+        见 _rsa_encrypt / _send_4510_command 第 1 步。
+        """
         import random
         import time as _time
 
@@ -531,6 +531,8 @@ class ZontesApiClient:
           同样被接受, 紧贴登录发旧格式心跳反而会致会话丢弃指令).
         - 服务器对短时间重复连接有限流 (登录帧无响应/指令无回显), 保留 1 次
           带 2s 退避的重试; 任何最终失败返回 False, 绝不外抛.
+        - 登录帧零回显 (b'') 而非报错, 是"服务端无法解密该帧"的典型特征
+          (2026-09-11 事故: 旧登录钥被退役); 此时应核实活动钥, 而非反复重试.
         """
         import asyncio
         import time as _time
@@ -550,24 +552,28 @@ class ZontesApiClient:
                 _LOGGER.error("4510 connect failed: %s", err)
                 continue
             try:
-                # 1. 登录
+                # 1. 登录 (登录帧与指令帧同用活动钥; 旧登录钥 Key-A 已被服务端
+                #    退役, 用它加密会被静默丢弃 -> 登录 5s 零回显, 见文件头注释)
                 writer.write(self._rsa_encrypt(self._control_login_frame(user_code)))
                 await writer.drain()
                 # 2. 等待登录确认; 未确认 (如被限流) 直接判本次失败,
                 #    避免向服务器多发无效指令加重限流
                 login_resp = await self._read_until(reader, b",OK#", 5.0)
                 if b",OK#" not in login_resp:
-                    # 把服务器原始回复透传进日志, 便于判断协议是否被官方调整
+                    # 把服务器原始回复透传进日志, 便于判断协议是否被官方调整。
+                    # 空回显 (b'') 且连接正常 = 服务端解不开登录帧的典型信号:
+                    # 优先怀疑服务端换钥, 按文件头"换钥复发定位手法"核实活动钥.
                     _LOGGER.warning(
-                        "4510 login not confirmed (attempt %d); server raw reply: %r",
+                        "4510 login not confirmed (attempt %d); server raw reply: %r"
+                        " (若为 b'' 且 TCP 正常, 优先排查活动钥是否已轮换)",
                         attempt + 1,
                         login_resp[-300:],
                     )
                     continue
                 _LOGGER.debug("4510 login OK (attempt %d) raw=%r", attempt + 1, login_resp[-200:])
                 # 3. 发送控制指令 (无需心跳帧, 见方法 docstring)
-                # 指令帧必须用 K1 钥加密 (登录钥 A 加密会被静默丢弃, 见头注释)
-                writer.write(self._rsa_encrypt_cmd(self._control_command_frame(command, user_code, pke_code, mcuid)))
+                # 指令帧与登录帧同用活动钥 (K1); 用已退役的 A 钥加密会被静默丢弃
+                writer.write(self._rsa_encrypt(self._control_command_frame(command, user_code, pke_code, mcuid)))
                 await writer.drain()
                 # 4. 以服务器指令回显 ',OK#' 为成功判据 (骑仕同款: 收到即关闭,
                 #    车辆异步执行; *AM 若在同一连接内到达仅作附加日志)
