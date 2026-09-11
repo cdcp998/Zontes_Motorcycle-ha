@@ -9,6 +9,7 @@
 HA 自动创建唯一设备, 界面即实体列表。
 """
 import logging
+import re
 from typing import Any, Optional
 
 from homeassistant.components.sensor import (
@@ -90,6 +91,40 @@ PERSONNEL_SENSORS = [
     ("service_info", "userName",         "user_name",     "mdi:account-details"),
     ("service_info", "userMobile",       "user_mobile",   "mdi:cellphone"),
 ]
+
+
+# ---------------------------------------------------------------------------
+# 接口形变防护: 额定胎压的区间字符串 (2026-09-11 实测)
+#   服务端把额定胎压下发成区间串 (如 "200,300"), 而这两个实体声明单位 kPa ->
+#   HA 会按数值解析并抛 ValueError: 结果不仅实体加载失败, 协调器每次刷新还会
+#   报 "Unexpected error updating listener" 刷屏 (每 30s 一条 ERROR)。
+#   此类区间串只取首个数值, 保证数值型语义、杜绝崩溃。
+# ---------------------------------------------------------------------------
+_RANGE_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+# 需要按"取首个数值"规整的字段 (其余字段维持原解析行为)
+RANGE_STRING_SENSOR_KEYS = frozenset({"ratedFrontPressure", "ratedRearPressure"})
+
+
+def extract_first_number(val: Any) -> Optional[float]:
+    """从区间字符串中安全提取首个数值。
+
+    支持 "200,300" / "200~300" / "200-300" / " 200 " 等形态; 数值原样透传,
+    其余无法解析的输入 (空串/纯文本/None) 一律返回 None 而非抛异常。
+    """
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if not isinstance(val, str):
+        return None
+    match = _RANGE_NUMBER_RE.search(val)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:  # pragma: no cover - 正则已保证可解析
+        return None
 
 
 def sensor_unique_ids(pke: str) -> set[str]:
@@ -239,6 +274,9 @@ class ZontesSensor(CoordinatorEntity, SensorEntity):
             if raw is None or str(raw).strip() == "":
                 return self._no_fault_text or "No Fault"
             return raw
+        if self._api_key in RANGE_STRING_SENSOR_KEYS:
+            # 区间串 ("200,300") 只取首个数值, 避免 HA 数值解析抛 ValueError
+            return extract_first_number(raw)
         parsed = parse_value(raw)
         if parsed is None:
             return None
